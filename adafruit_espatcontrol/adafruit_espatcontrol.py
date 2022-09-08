@@ -489,7 +489,7 @@ class ESP_ATcontrol:
     ) -> Union[List[List[bytes]], None]:
         """Ask the module to scan for access points and return a list of lists
         with name, RSSI, MAC addresses, etc"""
-        for _ in range(retries):
+        for _ in range(retries + 1):
             try:
                 if self.mode != self.MODE_STATION:
                     self.mode = self.MODE_STATION
@@ -540,7 +540,7 @@ class ESP_ATcontrol:
         a variable timeout (how long we'll wait for response) and
         how many times to retry before giving up"""
         # pylint: disable=too-many-branches
-        for _ in range(retries):
+        for _ in range(retries + 1):
             self.hw_flow(True)  # allow any remaning data to stream in
             time.sleep(0.1)  # wait for uart data
             self._uart.reset_input_buffer()  # flush it
@@ -578,7 +578,7 @@ class ESP_ATcontrol:
             # special case, ping also does not return an OK
             if "AT+PING" in at_cmd and b"ERROR\r\n" in response:
                 return response
-            if response[-4:] != b"OK\r\n":
+            if response[-4:] != b"OK\r\n" and "AT+CWLAP" not in at_cmd:
                 time.sleep(1)
                 continue
             return response[:-4]
