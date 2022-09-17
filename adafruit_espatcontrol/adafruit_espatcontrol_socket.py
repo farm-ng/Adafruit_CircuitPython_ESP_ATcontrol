@@ -67,6 +67,8 @@ class socket:
         is an extra that may indicate SSL or not, depending on the underlying interface"""
         host, port = address
 
+        print("\ntrying connect!\n")
+
         # Determine the conntype from port if not specified.
         if conntype is None:
             if port == 80:
@@ -78,9 +80,12 @@ class socket:
                 conntype = "TCP"
 
         if not _the_interface.socket_connect(
-            conntype, host, port, keepalive=10, retries=3
+            conntype, host, port, keepalive=0, retries=3
         ):
+            print("raising Failed to connect to host RuntimeError")
             raise RuntimeError("Failed to connect to host", host)
+        else:
+            print("Didn't raise socket connect error")
         self._buffer = b""
 
     def send(self, data: bytes) -> None:  # pylint: disable=no-self-use

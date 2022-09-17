@@ -135,22 +135,22 @@ class ESP_ATcontrol:
             except OKError:
                 pass  # retry
 
-    def connect(self, secrets: Dict[str, Union[str, int]]) -> None:
+    def connect(self, secrets: Dict[str, Union[str, int]], retries: int = 3) -> None:
         """Repeatedly try to connect to an access point with the details in
         the passed in 'secrets' dictionary. Be sure 'ssid' and 'password' are
         defined in the secrets dict! If 'timezone' is set, we'll also configure
         SNTP"""
         # Connect to WiFi if not already
-        retries = 3
-        while True:
+        for _ in range(retries + 1):
             try:
-                if not self._initialized or retries == 0:
+                if not self._initialized:
                     self.begin()
-                retries = 3
+                print(self.remote_AP)
                 AP = self.remote_AP  # pylint: disable=invalid-name
                 print("Connected to", AP[0])
                 if AP[0] != secrets["ssid"]:
-                    self.join_AP(secrets["ssid"], secrets["password"])
+                    # No retries because we're already in a retry loop
+                    self.join_AP(secrets["ssid"], secrets["password"], retries=0)
                     if "timezone" in secrets:
                         tzone = secrets["timezone"]
                         ntp = None
@@ -161,7 +161,6 @@ class ESP_ATcontrol:
                 return  # yay!
             except (RuntimeError, OKError) as exp:
                 print("Failed to connect, retrying\n", exp)
-                retries -= 1
                 continue
 
     # *************************** SOCKET SETUP ****************************
@@ -211,6 +210,7 @@ class ESP_ATcontrol:
             + ","
             + str(keepalive)
         )
+        # print("Sending (socket_connect):", cmd)
         replies = self.at_response(cmd, timeout=10, retries=retries).split(b"\r\n")
         for reply in replies:
             if reply == b"CONNECT" and (
@@ -287,6 +287,7 @@ class ESP_ATcontrol:
                             incoming_bytes = int(ipd)
                             if self._debug:
                                 print("Receiving:", incoming_bytes)
+                                print(self._ipdpacket)
                         except ValueError as err:
                             raise RuntimeError(
                                 "Parsing error during receive", ipd
@@ -307,6 +308,8 @@ class ESP_ATcontrol:
                         gc.collect()
                         bundle.append(self._ipdpacket[0:i])
                         gc.collect()
+                        with open("x.txt", "w") as f:
+                            f.write(self._ipdpacket[0:i])
                         i = incoming_bytes = 0
                         break  # We've received all the data. Don't wait until timeout.
             else:  # no data waiting
@@ -462,7 +465,9 @@ class ESP_ATcontrol:
             return reply
         return [None] * 4
 
-    def join_AP(self, ssid: str, password: str) -> None:  # pylint: disable=invalid-name
+    def join_AP(
+        self, ssid: str, password: str, retries=3
+    ) -> None:  # pylint: disable=invalid-name
         """Try to join an access point by name and password, will return
         immediately if we're already connected and won't try to reconnect"""
         # First make sure we're in 'station' mode so we can connect to AP's
@@ -472,9 +477,10 @@ class ESP_ATcontrol:
         router = self.remote_AP
         if router and router[0] == ssid:
             return  # we're already connected!
-        for _ in range(3):
+        for _ in range(retries + 1):
+            # No retries because we're already in a retry loop
             reply = self.at_response(
-                'AT+CWJAP="' + ssid + '","' + password + '"', timeout=15, retries=3
+                'AT+CWJAP="' + ssid + '","' + password + '"', timeout=15, retries=0
             )
             if b"WIFI CONNECTED" not in reply:
                 print("no CONNECTED")
@@ -485,7 +491,9 @@ class ESP_ATcontrol:
             return
 
     def scan_APs(  # pylint: disable=invalid-name
-        self, retries: int = 3
+        self,
+        retries: int = 3,
+        timeout: int = 5,
     ) -> Union[List[List[bytes]], None]:
         """Ask the module to scan for access points and return a list of lists
         with name, RSSI, MAC addresses, etc"""
@@ -493,7 +501,7 @@ class ESP_ATcontrol:
             try:
                 if self.mode != self.MODE_STATION:
                     self.mode = self.MODE_STATION
-                scan = self.at_response("AT+CWLAP", timeout=5).split(b"\r\n")
+                scan = self.at_response("AT+CWLAP", timeout=timeout).split(b"\r\n")
             except RuntimeError:
                 continue
             routers = []
@@ -579,6 +587,8 @@ class ESP_ATcontrol:
             if "AT+PING" in at_cmd and b"ERROR\r\n" in response:
                 return response
             if response[-4:] != b"OK\r\n" and "AT+CWLAP" not in at_cmd:
+                print("Sleeping for not OK response")
+                print(response)
                 time.sleep(1)
                 continue
             return response[:-4]
